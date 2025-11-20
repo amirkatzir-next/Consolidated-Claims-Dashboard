@@ -34,7 +34,9 @@ WITH
             ),
             Claim_Level_Data as (
                 SELECT
-                    lrd.policy_reference, lrd.claim_number, lrd.lob, lrd.cob_name, lrd.cob_group,
+                    lrd.policy_reference, lrd.claim_number,
+                    lrd.lob, -- *** REVERTED TO ORIGINAL ***
+                    lrd.cob_name, lrd.cob_group,
                     case
                         when lrd.cob_group in ('Food & beverage', 'Food & beverage - deprecated') then 'Food & Beverage'
                         when lrd.cob_group in ('Retail', 'Retail - deprecated') then 'Retail'
@@ -68,6 +70,8 @@ WITH
                     lrd.food_and_bev_express_ind,
                     agencytable.agency_type,
                     lrd.renewal_tag,
+                    -- *** NEW COLUMN ADDED ***
+                    CASE WHEN lrd.is_bop_policy = 1 THEN 'BOP Policy' ELSE 'Not BOP Policy' END as bop_policy_flag,
                     sum(paid_loss) as paid_loss,
                     sum(incurred_loss) as reported_loss, -- This is the field to be carried through
                     sum(paid_dcce) as paid_dcce,
@@ -89,8 +93,10 @@ WITH
                 LEFT JOIN (SELECT policy_reference, agency_type FROM (SELECT policy_reference, agency_type, transaction_month, ROW_NUMBER() OVER (PARTITION BY policy_reference ORDER BY transaction_month desc, agency_type desc) AS rn FROM db_data_science.ultimate_lrd) AS agencytable_ordered_by_date WHERE rn = 1) as agencytable ON agencytable.policy_reference = lrd.policy_reference
                 LEFT JOIN (SELECT claim_number, loss_cause_type_name FROM (SELECT claim_number, loss_cause_type_name, ROW_NUMBER() OVER (PARTITION BY claim_number ORDER BY transaction_month DESC, total_incurred DESC, loss_cause_type_name DESC) as rn2 FROM (SELECT claim_number, loss_cause_type_name, transaction_month, SUM(incurred_loss_and_alae_ss) as total_incurred FROM db_data_science.ultimate_lrd GROUP BY 1, 2, 3) sub) ordered WHERE rn2 = 1) as losscausetable ON losscausetable.claim_number = lrd.claim_number
                 WHERE lrd.ay_age > 0 AND lrd.claim_number IS NOT NULL
+                -- *** REVERTED TO ORIGINAL ***
                 AND lrd.lob IN ('IM', 'CA', 'WC', 'PL', 'CP', 'GL')
-                GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25
+                -- *** UPDATED GROUP BY (added 26) ***
+                GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26
             ),
             Claim_Manipulation_Prep as (
                 SELECT
@@ -147,6 +153,7 @@ WITH
             claim_number, transaction_month, lob, cob_name, cob_group, cob_grouping, channel, state, coverage, AY, PY, RY, ay_age, py_age, ry_age, am_age, loss_cause_type_name, paygo_indicator,
             Indemnity_Medicalonly, current_appetite, attorney_represented, litigated,
             food_and_bev_express_ind, agency_type, renewal_tag,
+            bop_policy_flag, -- *** ADDED NEW COLUMN ***
             NULL::double precision as earned_premium,
             NULL::double precision as earned_policy_years,
             SUM(cwp_CC) as cwp_CC, SUM(cnp_CC) as cnp_CC, SUM(closed_CC) as closed_CC, SUM(open_CC) as open_CC, SUM(reported_CC) as reported_CC, SUM(nonzero_reported_CC) as nonzero_reported_CC, SUM(expenseonly_cc) as expenseonly_cc, SUM(closed_expenseonly_CC) as closed_expenseonly_CC, SUM(closed_nolossorexpense_CC) as closed_nolossorexpense_CC,
@@ -177,7 +184,8 @@ WITH
             SUM(case_loss_on_open_capped_a) as case_loss_on_open_capped_a, SUM(case_loss_on_open_capped_b) as case_loss_on_open_capped_b, SUM(case_loss_on_open_capped_c) as case_loss_on_open_capped_c, SUM(case_loss_on_open_capped_d) as case_loss_on_open_capped_d, SUM(case_loss_on_open_capped_e) as case_loss_on_open_capped_e, SUM(case_loss_on_open_capped_f) as case_loss_on_open_capped_f, SUM(case_loss_on_open_capped_g) as case_loss_on_open_capped_g,
             SUM(paid_lossss_on_open_capped_a) as paid_lossss_on_open_capped_a, SUM(paid_lossss_on_open_capped_b) as paid_lossss_on_open_capped_b, SUM(paid_lossss_on_open_capped_c) as paid_lossss_on_open_capped_c, SUM(paid_lossss_on_open_capped_d) as paid_lossss_on_open_capped_d, SUM(paid_lossss_on_open_capped_e) as paid_lossss_on_open_capped_e, SUM(paid_lossss_on_open_capped_f) as paid_lossss_on_open_capped_f, SUM(paid_lossss_on_open_capped_g) as paid_lossss_on_open_capped_g
         FROM Claim_Manipulation
-        GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25
+        -- *** UPDATED GROUP BY (added 26) ***
+        GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26
     ),
 
     Premium_Data AS (
@@ -188,7 +196,7 @@ WITH
                     lrd.policy_start_date,
                     lrd.policy_end_date, -- This field must exist in the ultimate_lrd table.
                     lrd.transaction_month::date as transaction_month,
-                    lrd.lob,
+                    lrd.lob, -- *** REVERTED TO ORIGINAL ***
                     lrd.cob_name,
                     lrd.cob_group,
                     case
@@ -226,9 +234,12 @@ WITH
                     lrd.food_and_bev_express_ind,
                     a.agency_type,
                     lrd.renewal_tag,
+                    -- *** NEW COLUMN ADDED ***
+                    CASE WHEN lrd.is_bop_policy = 1 THEN 'BOP Policy' ELSE 'Not BOP Policy' END as bop_policy_flag,
                     lrd.earned_premium
                 FROM db_data_science.ultimate_lrd as lrd
                 LEFT JOIN (SELECT policy_reference, agency_type FROM (SELECT policy_reference, agency_type, transaction_month, ROW_NUMBER() OVER (PARTITION BY policy_reference ORDER BY transaction_month desc, agency_type desc) AS rn FROM db_data_science.ultimate_lrd) AS agencytable_ordered_by_date WHERE rn = 1) as a ON a.policy_reference = lrd.policy_reference
+                -- *** REVERTED TO ORIGINAL ***
                 WHERE lrd.lob IN ('IM', 'CA', 'WC', 'PL', 'CP', 'GL')
             ),
             Policy_Exposure_Cumulative AS (
@@ -259,6 +270,7 @@ WITH
             'N/A' as loss_cause_type_name, paygo_indicator, 'N/A' as Indemnity_Medicalonly, 'N/A' as current_appetite,
             'N/A' as attorney_represented, 'N/A' as litigated,
             food_and_bev_express_ind, agency_type, renewal_tag,
+            bop_policy_flag, -- *** ADDED NEW COLUMN ***
             SUM(earned_premium) as earned_premium,
             SUM(monthly_earned_policy_years) as earned_policy_years,
             0 as cwp_CC, 0 as cnp_CC, 0 as closed_CC, 0 as open_CC, 0 as reported_CC, 0 as nonzero_reported_CC, 0 as expenseonly_cc, 0 as closed_expenseonly_CC, 0 as closed_nolossorexpense_CC,
@@ -289,7 +301,8 @@ WITH
             0 as case_loss_on_open_capped_a, 0 as case_loss_on_open_capped_b, 0 as case_loss_on_open_capped_c, 0 as case_loss_on_open_capped_d, 0 as case_loss_on_open_capped_e, 0 as case_loss_on_open_capped_f, 0 as case_loss_on_open_capped_g,
             0 as paid_lossss_on_open_capped_a, 0 as paid_lossss_on_open_capped_b, 0 as paid_lossss_on_open_capped_c, 0 as paid_lossss_on_open_capped_d, 0 as paid_lossss_on_open_capped_e, 0 as paid_lossss_on_open_capped_f, 0 as paid_lossss_on_open_capped_g
         FROM Policy_Exposure_Incremental
-        GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25
+        -- *** UPDATED GROUP BY (added 26) ***
+        GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26
     )
 
 --- FINAL STEP: Combine the two streams and do the final aggregation ---
@@ -297,6 +310,7 @@ SELECT
     u.claim_number, u.transaction_month, u.lob, u.cob_name, u.cob_group, u.cob_grouping, u.channel, u.state, u.coverage, u.AY, u.PY, u.RY, u.ay_age, u.py_age, u.ry_age, u.am_age,
     u.loss_cause_type_name, u.paygo_indicator, u.Indemnity_Medicalonly, u.current_appetite, u.attorney_represented, u.litigated,
     u.food_and_bev_express_ind, u.agency_type, u.renewal_tag,
+    u.bop_policy_flag, -- *** ADDED NEW COLUMN ***
     SUM(u.earned_premium) as earned_premium, SUM(u.earned_policy_years) as earned_policy_years,
     SUM(u.cwp_CC) as cwp_CC, SUM(u.cnp_CC) as cnp_CC, SUM(u.closed_CC) as closed_CC, SUM(u.open_CC) as open_CC, SUM(u.reported_CC) as reported_CC, SUM(u.nonzero_reported_CC) as nonzero_reported_CC, SUM(u.expenseonly_cc) as expenseonly_cc, SUM(u.closed_expenseonly_CC) as closed_expenseonly_CC, SUM(u.closed_nolossorexpense_CC) as closed_nolossorexpense_CC,
     SUM(u.litigated_claim_count) as litigated_claim_count, SUM(u.attorney_rep_claim_count) as attorney_rep_claim_count,
@@ -333,5 +347,7 @@ FROM (
     UNION ALL
     SELECT * FROM Premium_Data
 ) u
-GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25
-ORDER BY u.AY, u.PY, u.RY, u.ay_age, u.py_age, u.ry_age, u.lob);
+-- *** UPDATED GROUP BY (added 26) ***
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26
+-- *** UPDATED ORDER BY (added bop_policy_flag) ***
+ORDER BY u.AY, u.PY, u.RY, u.ay_age, u.py_age, u.ry_age, u.lob, u.bop_policy_flag);
